@@ -32,14 +32,20 @@ This server implements the Tools functionality of MCP, providing a comprehensive
    export OTX_API_KEY=your_api_key_here
    ```
 
-2. Pull the Docker image from GitHub Container Registry:
+2. Authenticate with GitHub Container Registry:
    ```
-   docker pull ghcr.io/mrwadams/otx-mcp:latest
+   # Create a GitHub Personal Access Token (PAT) with at least 'read:packages' scope
+   # Go to GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+   # Generate a new token with 'read:packages' scope
+   
+   # Login to GitHub Container Registry
+   docker login ghcr.io -u YOUR_GITHUB_USERNAME
+   # When prompted, enter your Personal Access Token as the password
    ```
 
-3. Run the container with your OTX API key:
+3. Pull the Docker image from GitHub Container Registry:
    ```
-   docker run --rm -i -e OTX_API_KEY=$OTX_API_KEY ghcr.io/mrwadams/otx-mcp:latest
+   docker pull ghcr.io/mrwadams/otx-mcp:main
    ```
 
 ### Option 2: Local Installation
@@ -60,20 +66,6 @@ This server implements the Tools functionality of MCP, providing a comprehensive
 
 ## Usage
 
-### Running the MCP Server
-
-#### With Docker:
-```
-docker run --rm -i -e OTX_API_KEY=$OTX_API_KEY ghcr.io/mrwadams/otx-mcp:latest
-```
-
-#### Locally:
-```
-python main.py
-```
-
-The server will listen for MCP protocol messages on stdin/stdout.
-
 ### Using with Claude Desktop
 
 To use this MCP server with Claude Desktop, add the following to your Claude Desktop config file (`claude_desktop_config.json`):
@@ -88,13 +80,19 @@ To use this MCP server with Claude Desktop, add the following to your Claude Des
       "--rm",
       "-e",
       "OTX_API_KEY",
-      "ghcr.io/mrwadams/otx-mcp:latest"
+      "ghcr.io/mrwadams/otx-mcp:main"
     ]
   }
 }
 ```
 
-Make sure you have exported your OTX API key as an environment variable before starting Claude Desktop.
+Make sure you have:
+1. Exported your OTX API key as an environment variable before starting Claude Desktop
+2. Authenticated with GitHub Container Registry using a Personal Access Token as described in the installation section
+
+### Using with Other MCP Clients
+
+This MCP server is designed to be used with any MCP-compatible client. The server listens for MCP protocol messages on stdin/stdout, making it compatible with various MCP clients that can execute Docker containers.
 
 ## Available Tools
 

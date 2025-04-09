@@ -1,0 +1,28 @@
+# Prevent leaking sensitive information
+.env
+*.pem
+*.key
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore virtual environments
+.venv/
+env/
+venv/
+
+# Ignore OS-specific files
+.DS_Store
+
+# Ignore version control data
+.git/
+.gitignore
+
+# Ignore development files
+*.log
+*.swp
+.idea/
+.vscode/

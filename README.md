@@ -1,5 +1,7 @@
 # OTX MCP Server
 
+![OTX MCP logo](logo.png)
+
 A Model Context Protocol (MCP) server for AlienVault OTX (Open Threat Exchange) that provides a comprehensive interface to the OTX API.
 
 ## Overview

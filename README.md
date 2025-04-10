@@ -102,7 +102,8 @@ This MCP server is designed to be used with any MCP-compatible client. The serve
 The MCP server provides the following tools:
 
 ### Indicator Tools
-- `search_indicators`: Search OTX for pulses containing indicators matching a keyword
+- `search_indicators`: Search OTX for pulses containing indicators matching a keyword (uses default library behavior, may fetch multiple pages internally; use 'search_pulses_paginated' for explicit control).
+- `search_pulses_paginated`: Search OTX pulses with explicit pagination control via page and limit parameters.
 - `get_indicator_details`: Get detailed information about a specific indicator
 - `get_indicator_details_full`: Get all available details about a specific indicator
 - `validate_indicator`: Validate an indicator before adding it to a pulse

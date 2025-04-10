@@ -28,25 +28,57 @@ mcp = FastMCP("otx")
 
 @mcp.tool()
 async def search_indicators(keyword: str) -> Any:
-    """Search OTX for pulses containing indicators matching the keyword.
-    
+    """Search OTX for pulses matching the keyword (using default library behavior).
+
     This tool searches the OTX platform for pulses that contain indicators matching the provided keyword.
-    It's useful for finding relevant threat intelligence about specific indicators, domains, IPs, or other
-    threat-related terms.
-    
-    Use this tool when:
-    - You need to find threat intelligence about a specific indicator or keyword
-    - You want to discover pulses related to a particular threat or topic
-    - You're investigating a potential security incident and need context
-    
+    It uses the standard OTXv2 library function which may fetch multiple pages internally up to a default limit,
+    potentially causing delays or large responses.
+
+    Note: This tool reflects the default OTXv2 library behavior.
+    Use `search_pulses_paginated` for explicit page/limit control.
+
     Args:
         keyword: The search term to look for in pulses (e.g., "malware", "ransomware", "CVE-2023-1234")
-    
+
     Returns:
         A dictionary containing search results with pulses matching the keyword.
-        Each pulse includes metadata like name, description, author, and creation date.
     """
-    return otx.search_pulses(keyword)
+    try:
+        return otx.search_pulses(keyword)
+    except Exception as e:
+        log_debug(f"Error in search_indicators: {e}")
+        return {"error": f"Error executing tool search_indicators: {str(e)}"}
+
+@mcp.tool()
+async def search_pulses_paginated(keyword: str, page: int = 1, limit: int = 10) -> Any:
+    """Search OTX pulses with explicit pagination control.
+
+    This tool searches the OTX platform for pulses matching the keyword,
+    allowing direct control over pagination via `page` and `limit` parameters.
+    It bypasses the standard library's internal pagination to make a single API call for the requested page.
+
+    Use this tool for finer control over results and to avoid potential timeouts associated with large searches.
+
+    Args:
+        keyword: The search term to look for in pulses.
+        page: The page number of results to retrieve (default: 1).
+        limit: The maximum number of results per page (default: 10).
+
+    Returns:
+        The raw API response dictionary for the requested page, including 'results',
+        'count', 'next', and 'previous' fields, allowing the client to handle further pagination.
+    """
+    try:
+        # Manually construct the URL using the base path and parameters
+        search_url = otx.create_url("/api/v1/search/pulses", q=keyword, page=page, limit=limit)
+        log_debug(f"Calling paginated search: {search_url}")
+        # Use the lower-level get() method to fetch the specific page
+        response = otx.get(search_url)
+        log_memory_usage()
+        return response
+    except Exception as e:
+        log_debug(f"Error in search_pulses_paginated: {e}")
+        return {"error": f"Error executing tool search_pulses_paginated: {str(e)}"}
 
 @mcp.tool()
 async def get_pulse(pulse_id: str) -> Any:

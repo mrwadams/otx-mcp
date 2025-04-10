@@ -7,6 +7,7 @@ import os
 import sys
 from typing import Any, List, Dict, Optional, Union
 import datetime
+import anyio
 
 # === Load environment variables ===
 load_dotenv()
@@ -27,37 +28,12 @@ otx = OTXv2(OTX_API_KEY)
 mcp = FastMCP("otx")
 
 @mcp.tool()
-async def search_indicators(keyword: str) -> Any:
-    """Search OTX for pulses matching the keyword (using default library behavior).
+async def search_indicators(keyword: str, page: int = 1, limit: int = 10) -> Any:
+    """Search OTX for pulses matching the keyword (paginated).
 
-    This tool searches the OTX platform for pulses that contain indicators matching the provided keyword.
-    It uses the standard OTXv2 library function which may fetch multiple pages internally up to a default limit,
-    potentially causing delays or large responses.
-
-    Note: This tool reflects the default OTXv2 library behavior.
-    Use `search_pulses_paginated` for explicit page/limit control.
-
-    Args:
-        keyword: The search term to look for in pulses (e.g., "malware", "ransomware", "CVE-2023-1234")
-
-    Returns:
-        A dictionary containing search results with pulses matching the keyword.
-    """
-    try:
-        return otx.search_pulses(keyword)
-    except Exception as e:
-        log_debug(f"Error in search_indicators: {e}")
-        return {"error": f"Error executing tool search_indicators: {str(e)}"}
-
-@mcp.tool()
-async def search_pulses_paginated(keyword: str, page: int = 1, limit: int = 10) -> Any:
-    """Search OTX pulses with explicit pagination control.
-
-    This tool searches the OTX platform for pulses matching the keyword,
+    This tool searches the OTX platform for pulses matching the provided keyword,
     allowing direct control over pagination via `page` and `limit` parameters.
-    It bypasses the standard library's internal pagination to make a single API call for the requested page.
-
-    Use this tool for finer control over results and to avoid potential timeouts associated with large searches.
+    It makes a single API call for the requested page.
 
     Args:
         keyword: The search term to look for in pulses.
@@ -71,14 +47,14 @@ async def search_pulses_paginated(keyword: str, page: int = 1, limit: int = 10) 
     try:
         # Manually construct the URL using the base path and parameters
         search_url = otx.create_url("/api/v1/search/pulses", q=keyword, page=page, limit=limit)
-        log_debug(f"Calling paginated search: {search_url}")
-        # Use the lower-level get() method to fetch the specific page
-        response = otx.get(search_url)
-        log_memory_usage()
+        log_debug(f"Calling paginated pulse search: {search_url}")
+        # Use the lower-level get() method, run in a thread to avoid blocking
+        response = await anyio.to_thread.run_sync(otx.get, search_url)
+        log_memory_usage() # Keep memory log if useful
         return response
     except Exception as e:
-        log_debug(f"Error in search_pulses_paginated: {e}")
-        return {"error": f"Error executing tool search_pulses_paginated: {str(e)}"}
+        log_debug(f"Error in search_indicators: {e}")
+        return {"error": f"Error executing tool search_indicators: {str(e)}"}
 
 @mcp.tool()
 async def get_pulse(pulse_id: str) -> Any:
@@ -101,48 +77,48 @@ async def get_pulse(pulse_id: str) -> Any:
     """
     try:
         log_debug(f"Calling get_pulse with pulse_id={pulse_id}")
-        pulse = otx.get_pulse_details(pulse_id)
-        pulse.pop("indicators", None)  # Remove bulky field
+        # Run the potentially blocking library call in a thread
+        pulse = await anyio.to_thread.run_sync(otx.get_pulse_details, pulse_id)
+        pulse.pop("indicators", None)  # Remove bulky field as intended
         log_memory_usage()
         return pulse
     except Exception as e:
         log_debug(f"Error in get_pulse: {e}")
-        return {"error": str(e)}
+        return {"error": f"Error executing tool get_pulse: {str(e)}"}
 
 @mcp.tool()
-async def extract_indicators_from_pulse(pulse_id: str) -> Any:
-    """Extract a list of indicators from a given Pulse ID.
-    
-    This tool retrieves the indicators (IOCs) contained within a specific pulse.
-    It's limited to 10 indicators to prevent memory overload, focusing on the most relevant ones.
-    
+async def extract_indicators_from_pulse(pulse_id: str, page: int = 1, limit: int = 20) -> Any:
+    """Extract a paginated list of indicators from a given Pulse ID.
+
+    This tool retrieves indicators (IOCs) contained within a specific pulse,
+    allowing direct control over pagination via `page` and `limit` parameters.
+
     Use this tool when:
     - You need to extract specific indicators from a pulse for analysis
     - You want to identify the IOCs associated with a particular threat
     - You're building a collection of indicators for threat hunting or detection
-    
+    - A pulse contains too many indicators to retrieve all at once
+
     Args:
-        pulse_id: The unique identifier of the pulse (24-character hex string)
-    
+        pulse_id: The unique identifier of the pulse (24-character hex string).
+        page: The page number of indicators to retrieve (default: 1).
+        limit: The maximum number of indicators per page (default: 20).
+
     Returns:
-        A list of dictionaries, each representing an indicator with its type,
-        value, and description. Limited to 10 indicators per pulse.
+        The raw API response dictionary for the requested page of indicators,
+        including 'results', 'count', 'next', and 'previous' fields.
     """
     try:
-        pulse = otx.get_pulse_details(pulse_id)
-        indicators = pulse.get("indicators", [])
-        # Limit number of indicators to avoid memory overload
-        MAX_INDICATORS = 10
-        return [
-            {
-                "indicator": i.get("indicator"),
-                "type": i.get("type"),
-                "description": i.get("description", "")
-            }
-            for i in indicators[:MAX_INDICATORS]
-        ]
+        # Construct the specific URL for pulse indicators with pagination
+        indicators_url = otx.create_url(f"/api/v1/pulses/{pulse_id}/indicators", page=page, limit=limit)
+        log_debug(f"Calling paginated pulse indicators: {indicators_url}")
+        # Use the lower-level get() method, run in a thread to avoid blocking
+        response = await anyio.to_thread.run_sync(otx.get, indicators_url)
+        log_memory_usage()
+        return response
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in extract_indicators_from_pulse: {e}")
+        return {"error": f"Error executing tool extract_indicators_from_pulse: {str(e)}"}
 
 @mcp.tool()
 async def get_indicator_details(indicator_type: str, indicator: str, section: str = "general") -> Any:
@@ -170,14 +146,19 @@ async def get_indicator_details(indicator_type: str, indicator: str, section: st
     """
     try:
         # Convert string to IndicatorTypes enum if needed
+        enum_type = None
         if isinstance(indicator_type, str):
-            indicator_type = getattr(IndicatorTypes, indicator_type.upper(), None)
-            if indicator_type is None:
-                return {"error": f"Invalid indicator type: {indicator_type}"}
+            enum_type = getattr(IndicatorTypes, indicator_type.upper(), None)
+            if enum_type is None:
+                return {"error": f"Invalid indicator type string: {indicator_type}"}
         
-        return otx.get_indicator_details_by_section(indicator_type, indicator, section)
+        # Run the potentially blocking library call in a thread
+        details = await anyio.to_thread.run_sync(otx.get_indicator_details_by_section, enum_type, indicator, section)
+        log_memory_usage()
+        return details
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_indicator_details: {e}")
+        return {"error": f"Error executing tool get_indicator_details: {str(e)}"}
 
 @mcp.tool()
 async def get_indicator_details_full(indicator_type: str, indicator: str) -> Any:
@@ -202,14 +183,19 @@ async def get_indicator_details_full(indicator_type: str, indicator: str) -> Any
     """
     try:
         # Convert string to IndicatorTypes enum if needed
+        enum_type = None
         if isinstance(indicator_type, str):
-            indicator_type = getattr(IndicatorTypes, indicator_type.upper(), None)
-            if indicator_type is None:
-                return {"error": f"Invalid indicator type: {indicator_type}"}
+            enum_type = getattr(IndicatorTypes, indicator_type.upper(), None)
+            if enum_type is None:
+                return {"error": f"Invalid indicator type string: {indicator_type}"}
         
-        return otx.get_indicator_details_full(indicator_type, indicator)
+        # Run the potentially blocking library call in a thread
+        details = await anyio.to_thread.run_sync(otx.get_indicator_details_full, enum_type, indicator)
+        log_memory_usage()
+        return details
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_indicator_details_full: {e}")
+        return {"error": f"Error executing tool get_indicator_details_full: {str(e)}"}
 
 @mcp.tool()
 async def search_users(query: str, max_results: int = 25) -> Any:
@@ -233,9 +219,13 @@ async def search_users(query: str, max_results: int = 25) -> Any:
         Each user entry includes username, full name, and other profile information.
     """
     try:
-        return otx.search_users(query, max_results=max_results)
+        # Run the potentially blocking library call in a thread
+        results = await anyio.to_thread.run_sync(otx.search_users, query, max_results=max_results)
+        log_memory_usage()
+        return results
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in search_users: {e}")
+        return {"error": f"Error executing tool search_users: {str(e)}"}
 
 @mcp.tool()
 async def get_user(username: str, detailed: bool = True) -> Any:
@@ -259,9 +249,13 @@ async def get_user(username: str, detailed: bool = True) -> Any:
         statistics, and recent activity if detailed=True.
     """
     try:
-        return otx.get_user(username, detailed=detailed)
+        # Run the potentially blocking library call in a thread
+        user_info = await anyio.to_thread.run_sync(otx.get_user, username, detailed=detailed)
+        log_memory_usage()
+        return user_info
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_user: {e}")
+        return {"error": f"Error executing tool get_user: {str(e)}"}
 
 @mcp.tool()
 async def get_user_pulses(username: str, query: Optional[str] = None, max_items: int = 200) -> Any:
@@ -285,9 +279,13 @@ async def get_user_pulses(username: str, query: Optional[str] = None, max_items:
         Each pulse includes metadata like name, description, and creation date.
     """
     try:
-        return otx.get_user_pulses(username, query=query, max_items=max_items)
+        # Run the potentially blocking library call in a thread
+        pulses = await anyio.to_thread.run_sync(otx.get_user_pulses, username, query=query, max_items=max_items)
+        log_memory_usage()
+        return pulses
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_user_pulses: {e}")
+        return {"error": f"Error executing tool get_user_pulses: {str(e)}"}
 
 @mcp.tool()
 async def get_my_pulses(query: Optional[str] = None, max_items: int = 200) -> Any:
@@ -311,9 +309,13 @@ async def get_my_pulses(query: Optional[str] = None, max_items: int = 200) -> An
         Each pulse includes metadata like name, description, and creation date.
     """
     try:
-        return otx.get_my_pulses(query=query, max_items=max_items)
+        # Run the potentially blocking library call in a thread
+        pulses = await anyio.to_thread.run_sync(otx.get_my_pulses, query=query, max_items=max_items)
+        log_memory_usage()
+        return pulses
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_my_pulses: {e}")
+        return {"error": f"Error executing tool get_my_pulses: {str(e)}"}
 
 @mcp.tool()
 async def follow_user(username: str) -> Any:
@@ -334,9 +336,13 @@ async def follow_user(username: str) -> Any:
         A dictionary indicating the success or failure of the follow operation.
     """
     try:
-        return otx.follow_user(username)
+        # Run the potentially blocking library call in a thread
+        result = await anyio.to_thread.run_sync(otx.follow_user, username)
+        log_memory_usage()
+        return result
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in follow_user: {e}")
+        return {"error": f"Error executing tool follow_user: {str(e)}"}
 
 @mcp.tool()
 async def unfollow_user(username: str) -> Any:
@@ -357,9 +363,13 @@ async def unfollow_user(username: str) -> Any:
         A dictionary indicating the success or failure of the unfollow operation.
     """
     try:
-        return otx.unfollow_user(username)
+        # Run the potentially blocking library call in a thread
+        result = await anyio.to_thread.run_sync(otx.unfollow_user, username)
+        log_memory_usage()
+        return result
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in unfollow_user: {e}")
+        return {"error": f"Error executing tool unfollow_user: {str(e)}"}
 
 @mcp.tool()
 async def subscribe_to_pulse(pulse_id: str) -> Any:
@@ -380,9 +390,13 @@ async def subscribe_to_pulse(pulse_id: str) -> Any:
         A dictionary indicating the success or failure of the subscription operation.
     """
     try:
-        return otx.subscribe_to_pulse(pulse_id)
+        # Run the potentially blocking library call in a thread
+        result = await anyio.to_thread.run_sync(otx.subscribe_to_pulse, pulse_id)
+        log_memory_usage()
+        return result
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in subscribe_to_pulse: {e}")
+        return {"error": f"Error executing tool subscribe_to_pulse: {str(e)}"}
 
 @mcp.tool()
 async def unsubscribe_from_pulse(pulse_id: str) -> Any:
@@ -403,9 +417,13 @@ async def unsubscribe_from_pulse(pulse_id: str) -> Any:
         A dictionary indicating the success or failure of the unsubscription operation.
     """
     try:
-        return otx.unsubscribe_from_pulse(pulse_id)
+        # Run the potentially blocking library call in a thread
+        result = await anyio.to_thread.run_sync(otx.unsubscribe_from_pulse, pulse_id)
+        log_memory_usage()
+        return result
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in unsubscribe_from_pulse: {e}")
+        return {"error": f"Error executing tool unsubscribe_from_pulse: {str(e)}"}
 
 @mcp.tool()
 async def create_pulse(
@@ -458,7 +476,7 @@ async def create_pulse(
         A dictionary containing the created pulse information, including its ID.
     """
     try:
-        # Prepare the pulse data
+        # Prepare the pulse data dictionary
         pulse_data = {
             "name": name,
             "description": description,
@@ -475,9 +493,14 @@ async def create_pulse(
             "attack_ids": attack_ids or []
         }
         
-        return otx.create_pulse(**pulse_data)
+        # Run the potentially blocking library call (otx.create_pulse uses otx.post) in a thread
+        # Note: We need to pass the function and its arguments correctly to run_sync
+        created_pulse = await anyio.to_thread.run_sync(otx.create_pulse, **pulse_data)
+        log_memory_usage()
+        return created_pulse
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in create_pulse: {e}")
+        return {"error": f"Error executing tool create_pulse: {str(e)}"}
 
 @mcp.tool()
 async def validate_indicator(indicator_type: str, indicator: str, description: str = "") -> Any:
@@ -503,14 +526,19 @@ async def validate_indicator(indicator_type: str, indicator: str, description: s
     """
     try:
         # Convert string to IndicatorTypes enum if needed
+        enum_type = None
         if isinstance(indicator_type, str):
-            indicator_type = getattr(IndicatorTypes, indicator_type.upper(), None)
-            if indicator_type is None:
-                return {"error": f"Invalid indicator type: {indicator_type}"}
+            enum_type = getattr(IndicatorTypes, indicator_type.upper(), None)
+            if enum_type is None:
+                return {"error": f"Invalid indicator type string: {indicator_type}"}
         
-        return otx.validate_indicator(indicator_type, indicator, description)
+        # Run the potentially blocking library call (otx.validate_indicator uses otx.post) in a thread
+        validation_result = await anyio.to_thread.run_sync(otx.validate_indicator, enum_type, indicator, description)
+        log_memory_usage()
+        return validation_result
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in validate_indicator: {e}")
+        return {"error": f"Error executing tool validate_indicator: {str(e)}"}
 
 @mcp.tool()
 async def submit_url(url: str) -> Any:
@@ -532,9 +560,13 @@ async def submit_url(url: str) -> Any:
         Note that analysis may take some time to complete.
     """
     try:
-        return otx.submit_url(url)
+        # Run the potentially blocking library call (otx.submit_url uses otx.post) in a thread
+        submission_status = await anyio.to_thread.run_sync(otx.submit_url, url)
+        log_memory_usage()
+        return submission_status
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in submit_url: {e}")
+        return {"error": f"Error executing tool submit_url: {str(e)}"}
 
 @mcp.tool()
 async def submit_urls(urls: List[str]) -> Any:
@@ -557,9 +589,13 @@ async def submit_urls(urls: List[str]) -> Any:
         Note that analysis may take some time to complete.
     """
     try:
-        return otx.submit_urls(urls)
+        # Run the potentially blocking library call (otx.submit_urls uses otx.post) in a thread
+        submission_status = await anyio.to_thread.run_sync(otx.submit_urls, urls)
+        log_memory_usage()
+        return submission_status
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in submit_urls: {e}")
+        return {"error": f"Error executing tool submit_urls: {str(e)}"}
 
 @mcp.tool()
 async def get_recent_events(timestamp: Optional[str] = None, limit: int = 50) -> Any:
@@ -585,12 +621,17 @@ async def get_recent_events(timestamp: Optional[str] = None, limit: int = 50) ->
     """
     try:
         # If no timestamp provided, use 24 hours ago
-        if timestamp is None:
-            timestamp = (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat()
+        final_timestamp = timestamp
+        if final_timestamp is None:
+            final_timestamp = (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat()
         
-        return otx.getevents_since(timestamp=timestamp, limit=limit)
+        # Run the potentially blocking library call (otx.getevents_since uses otx.get) in a thread
+        events = await anyio.to_thread.run_sync(otx.getevents_since, timestamp=final_timestamp, limit=limit)
+        log_memory_usage()
+        return events
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_recent_events: {e}")
+        return {"error": f"Error executing tool get_recent_events: {str(e)}"}
 
 @mcp.tool()
 async def get_subscribed_pulses(modified_since: Optional[str] = None, author_name: Optional[str] = None, limit: int = 50) -> Any:
@@ -615,9 +656,13 @@ async def get_subscribed_pulses(modified_since: Optional[str] = None, author_nam
         the user is subscribed to, optionally filtered by the provided criteria.
     """
     try:
-        return otx.getall(modified_since=modified_since, author_name=author_name, limit=limit)
+        # Run the potentially blocking library call (otx.getall uses otx.get) in a thread
+        pulses = await anyio.to_thread.run_sync(otx.getall, modified_since=modified_since, author_name=author_name, limit=limit)
+        log_memory_usage()
+        return pulses
     except Exception as e:
-        return {"error": str(e)}
+        log_debug(f"Error in get_subscribed_pulses: {e}")
+        return {"error": f"Error executing tool get_subscribed_pulses: {str(e)}"}
 
 mcp.list_resources = lambda: []
 mcp.list_prompts = lambda: []

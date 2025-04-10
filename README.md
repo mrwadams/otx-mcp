@@ -102,15 +102,14 @@ This MCP server is designed to be used with any MCP-compatible client. The serve
 The MCP server provides the following tools:
 
 ### Indicator Tools
-- `search_indicators`: Search OTX for pulses containing indicators matching a keyword (uses default library behavior, may fetch multiple pages internally; use 'search_pulses_paginated' for explicit control).
-- `search_pulses_paginated`: Search OTX pulses with explicit pagination control via page and limit parameters.
+- `search_indicators`: Search OTX for pulses matching a keyword (supports pagination via `page` and `limit` arguments).
 - `get_indicator_details`: Get detailed information about a specific indicator
 - `get_indicator_details_full`: Get all available details about a specific indicator
 - `validate_indicator`: Validate an indicator before adding it to a pulse
 
 ### Pulse Tools
 - `get_pulse`: Get full details of a Pulse using its ID
-- `extract_indicators_from_pulse`: Extract a list of indicators from a given Pulse ID
+- `extract_indicators_from_pulse`: Extract a paginated list of indicators from a given Pulse ID (supports `page` and `limit` arguments).
 - `create_pulse`: Create a new pulse with threat intelligence information
 - `get_my_pulses`: Get pulses created by the authenticated user
 - `get_subscribed_pulses`: Get pulses the user is subscribed to

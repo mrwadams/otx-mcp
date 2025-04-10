@@ -81,7 +81,10 @@ To use this MCP server with Claude Desktop, add the following to your Claude Des
       "-e",
       "OTX_API_KEY",
       "ghcr.io/mrwadams/otx-mcp:main"
-    ]
+    ],
+    "env": {
+      "OTX_API_KEY": "your_api_key_here"
+    }
   }
 }
 ```
